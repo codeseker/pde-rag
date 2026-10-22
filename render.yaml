@@ -1,0 +1,56 @@
+# Render blueprint for the PDE RAG app.
+#
+# One Docker image (repo root Dockerfile) -> one Web Service.
+# The blueprint also provisions a free PostgreSQL database with pgvector.
+#
+# NOTE: Render's free PostgreSQL expires 30 days after creation. For a
+# database that does not expire, create a free Neon project instead and set
+# DATABASE_URL / MIGRATION_DATABASE_URL manually (see README).
+
+services:
+  - type: web
+    name: pde-rag
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LLM_STRATEGY
+        value: groq
+      - key: EMBEDDING_STRATEGY
+        value: gemini
+      - key: GROQ_LLM_MODEL
+        value: openai/gpt-oss-120b
+      - key: GROQ_MAX_OUTPUT_TOKENS
+        value: "4096"
+      - key: CHUNK_SIZE
+        value: "600"
+      - key: CHUNK_OVERLAP
+        value: "100"
+      - key: TOP_K
+        value: "3"
+      - key: MAX_CONTEXT_CHARS
+        value: "6000"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pde-rag-db
+          property: connectionString
+      - key: MIGRATION_DATABASE_URL
+        fromDatabase:
+          name: pde-rag-db
+          property: connectionString
+
+databases:
+  - name: pde-rag-db
+    databaseName: pde
+    user: pde
+    plan: free
+    postgresMajorVersion: "16"

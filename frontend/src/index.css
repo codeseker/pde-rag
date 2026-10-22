@@ -1,0 +1,254 @@
+@import "tailwindcss";
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: #020617;
+  color: #e2e8f0;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: rgb(99 102 241 / 40%);
+  color: #f8fafc;
+}
+
+.md {
+  overflow-wrap: anywhere;
+  color: #cbd5e1;
+  font-size: 0.9375rem;
+  line-height: 1.75;
+}
+
+.md > :first-child {
+  margin-top: 0;
+}
+
+.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md p {
+  margin: 0.7rem 0;
+}
+
+.md h1,
+.md h2,
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  margin: 1.35rem 0 0.55rem;
+  color: #f8fafc;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.md h1 {
+  font-size: 1.4rem;
+}
+
+.md h2 {
+  font-size: 1.18rem;
+}
+
+.md h3 {
+  font-size: 1.02rem;
+}
+
+.md h4 {
+  font-size: 0.95rem;
+}
+
+.md h5,
+.md h6 {
+  font-size: 0.88rem;
+}
+
+.md ul,
+.md ol {
+  margin: 0.7rem 0;
+  padding-left: 1.5rem;
+}
+
+.md ul {
+  list-style: disc;
+}
+
+.md ol {
+  list-style: decimal;
+}
+
+.md li {
+  margin: 0.3rem 0;
+  padding-left: 0.15rem;
+}
+
+.md li::marker {
+  color: #818cf8;
+}
+
+.md li > p {
+  margin: 0.25rem 0;
+}
+
+.md a {
+  color: #a5b4fc;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.md a:hover {
+  color: #c7d2fe;
+}
+
+.md strong {
+  color: #f8fafc;
+  font-weight: 650;
+}
+
+.md em {
+  color: #e2e8f0;
+}
+
+.md blockquote {
+  margin: 0.9rem 0;
+  border-left: 3px solid #6366f1;
+  border-radius: 0 0.5rem 0.5rem 0;
+  background: rgb(99 102 241 / 10%);
+  padding: 0.65rem 0.95rem;
+  color: #cbd5e1;
+}
+
+.md blockquote p {
+  margin: 0.2rem 0;
+}
+
+.md code {
+  border: 1px solid #334155;
+  border-radius: 0.35rem;
+  background: #1e293b;
+  padding: 0.1rem 0.35rem;
+  color: #c7d2fe;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.86em;
+}
+
+.md pre {
+  margin: 0.9rem 0;
+  overflow-x: auto;
+  border: 1px solid #1e293b;
+  border-radius: 0.75rem;
+  background: #020617;
+  padding: 0.95rem 1rem;
+  color: #e2e8f0;
+}
+
+.md pre code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font-size: 0.82em;
+}
+
+.md table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0.9rem 0;
+  font-size: 0.86rem;
+}
+
+.md th,
+.md td {
+  border: 1px solid #334155;
+  padding: 0.45rem 0.65rem;
+  text-align: left;
+}
+
+.md th {
+  background: #1e293b;
+  color: #f1f5f9;
+  font-weight: 650;
+}
+
+.md tbody tr:nth-child(even) td {
+  background: rgb(30 41 59 / 35%);
+}
+
+.md hr {
+  margin: 1.35rem 0;
+  border: 0;
+  border-top: 1px solid #1e293b;
+}
+
+.md img {
+  max-width: 100%;
+  border-radius: 0.5rem;
+}
+
+.md input[type="checkbox"] {
+  margin-right: 0.4rem;
+  accent-color: #6366f1;
+}
+
+.md .katex {
+  color: #e2e8f0;
+  font-size: 1.03em;
+}
+
+.md .katex-display {
+  margin: 1rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.4rem 0;
+  text-align: center;
+}
+
+.md .katex-display > .katex {
+  display: inline-block;
+}
+
+.md .katex-display::-webkit-scrollbar {
+  height: 6px;
+}
+
+.md .katex-display::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.md .katex-display::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #334155;
+}

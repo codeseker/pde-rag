@@ -1,0 +1,64 @@
+# Reverse proxy + static file server.
+# __PORT__ is replaced with $PORT by deploy/entrypoint.sh at container start.
+#
+# The browser only ever calls "/ask" and "/feed" on this same origin, so the
+# request never crosses an origin boundary and CORS never applies.
+
+server {
+  listen __PORT__;
+  server_name _;
+
+  root /usr/share/nginx/html;
+  index index.html;
+
+  # PDF uploads go through POST /feed.
+  client_max_body_size 25m;
+
+  # --- SSE streaming endpoint ------------------------------------------------
+  location = /ask {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection        "";
+
+    # Required for server-sent events: stream bytes as they arrive.
+    proxy_buffering off;
+    proxy_cache off;
+    chunked_transfer_encoding on;
+
+    # The LLM call can take a while on a cold start.
+    proxy_connect_timeout 30s;
+    proxy_send_timeout    300s;
+    proxy_read_timeout    300s;
+  }
+
+  # --- Document ingestion endpoint -------------------------------------------
+  location = /feed {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection        "";
+
+    client_max_body_size 25m;
+    proxy_connect_timeout 30s;
+    proxy_send_timeout    300s;
+    proxy_read_timeout    300s;
+  }
+
+  # --- Static React app ------------------------------------------------------
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+
+  location ~* \.(js|css|svg|woff2?|ttf|eot)$ {
+    expires 1y;
+    add_header Cache-Control "public, immutable";
+    try_files $uri =404;
+  }
+}

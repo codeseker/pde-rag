@@ -1,0 +1,8 @@
+allowBuilds:
+  '@parcel/watcher': true
+  esbuild: true
+  unrs-resolver: true
+minimumReleaseAgeExclude:
+  - '@langchain/langgraph-checkpoint@1.2.1'
+  - '@langchain/langgraph-sdk@1.12.6'
+  - '@langchain/langgraph@1.5.2'

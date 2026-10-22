@@ -1,0 +1,3 @@
+export const LLM_STRATEGIES = Symbol('LLM_STRATEGIES');
+export const EMBEDDING_STRATEGIES = Symbol('EMBEDDING_STRATEGIES');
+export const MATH_VERIFIER = Symbol('MATH_VERIFIER');
