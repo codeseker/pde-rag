@@ -132,7 +132,9 @@ export class DatabaseService implements OnApplicationBootstrap, OnApplicationShu
   private markUnavailable(error: unknown): void {
     this.ready = false;
     this.lastError = errorMessage(error);
-    this.logger.error(`Database unavailable: ${this.lastError}`);
+    this.logger.error(
+      `Database unavailable (${describeDatabaseUrl(env.DATABASE_URL)}): ${this.lastError}`,
+    );
     this.scheduleRetry();
   }
 

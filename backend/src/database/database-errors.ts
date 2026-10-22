@@ -56,24 +56,66 @@ const UNAVAILABLE_MESSAGE_PATTERNS = [
   'no pg_hba.conf entry',
 ];
 
-function errorChain(error: unknown, depth = 0): unknown[] {
+function errorChain(error: unknown, depth = 0, seen = new Set<object>()): unknown[] {
   if (!error || depth > 6) {
     return [];
   }
 
-  const record =
-    typeof error === 'object' && error !== null
-      ? (error as { cause?: unknown })
-      : null;
-  if (!record) {
+  if (typeof error !== 'object') {
     return [error];
   }
+  if (seen.has(error)) {
+    return [];
+  }
+  seen.add(error);
 
+  const record = error as { cause?: unknown; errors?: unknown };
   const chain: unknown[] = [error];
+
+  // Drizzle wraps driver failures in Error.cause. pg-pool sometimes wraps the
+  // individual connection attempts in an AggregateError, whose own message is
+  // empty; without walking `errors` the health payload loses the real reason.
   if (record.cause && record.cause !== error) {
-    chain.push(...errorChain(record.cause, depth + 1));
+    chain.push(...errorChain(record.cause, depth + 1, seen));
+  }
+  if (Array.isArray(record.errors)) {
+    for (const nested of record.errors) {
+      chain.push(...errorChain(nested, depth + 1, seen));
+    }
   }
   return chain;
+}
+
+/** A useful label even for errors (AggregateError) whose message is empty. */
+function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    const code =
+      typeof (error as { code?: unknown }).code === 'string'
+        ? (error as unknown as { code: string }).code
+        : null;
+    const message = error.message.trim();
+    if (message) {
+      return code && !message.includes(code) ? `${message} [${code}]` : message;
+    }
+    return code ? `${error.name} [${code}]` : error.name;
+  }
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  if (error && typeof error === 'object') {
+    const record = error as { message?: unknown; name?: unknown; code?: unknown };
+    const code = typeof record.code === 'string' ? record.code : null;
+    const message = typeof record.message === 'string' ? record.message.trim() : '';
+    if (message) {
+      return code && !message.includes(code) ? `${message} [${code}]` : message;
+    }
+    const name = typeof record.name === 'string' ? record.name : 'Error';
+    return code ? `${name} [${code}]` : name;
+  }
+
+  return '';
 }
 
 export function isDatabaseUnavailableError(error: unknown): boolean {
@@ -109,12 +151,7 @@ export function redactSecrets(value: string): string {
 export function errorMessage(error: unknown): string {
   const messages: string[] = [];
   for (const current of errorChain(error)) {
-    const message =
-      current instanceof Error
-        ? current.message
-        : typeof current === 'string'
-          ? current
-          : '';
+    const message = describeError(current);
     if (message && !messages.includes(message)) {
       messages.push(message);
     }

@@ -27,6 +27,24 @@ test('finds driver failures wrapped by Drizzle', () => {
   assert.match(errorMessage(wrapped), /ECONNREFUSED/);
 });
 
+test('surfaces pg-pool AggregateError causes that have no message', () => {
+  const timeout = Object.assign(new Error(''), { code: 'ETIMEDOUT' });
+  const aggregate = new AggregateError(
+    [Object.assign(new Error('connect ETIMEDOUT 10.0.0.5:5432'), { code: 'ETIMEDOUT' })],
+    '',
+  );
+  Object.assign(aggregate, { code: 'ETIMEDOUT' });
+  const wrapped = new Error(
+    'Failed query: CREATE SCHEMA IF NOT EXISTS "drizzle"\nparams: ',
+    { cause: aggregate },
+  );
+
+  assert.match(errorMessage(wrapped), /AggregateError \[ETIMEDOUT\]/);
+  assert.match(errorMessage(wrapped), /connect ETIMEDOUT 10\.0\.0\.5:5432/);
+  assert.equal(isDatabaseUnavailableError(wrapped), true);
+  assert.match(errorMessage(timeout), /\[ETIMEDOUT\]/);
+});
+
 test('does not hide validation or schema errors', () => {
   assert.equal(isDatabaseUnavailableError({ code: '23505' }), false);
   assert.equal(isDatabaseUnavailableError({ code: '42P01' }), false);
