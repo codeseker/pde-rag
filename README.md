@@ -137,10 +137,26 @@ When running the backend on the host, set `OLLAMA_BASE_URL=http://localhost:1143
 | `TOP_K` | Retrieved non-pinned chunks per query | `3` |
 | `MAX_CONTEXT_CHARS` | Hard cap on retrieved context sent to the LLM | `6000` |
 | `VERIFIER_URL` | SymPy verifier base URL | `http://localhost:8000` |
-| `VITE_API_URL` | Browser-visible API URL (build-time in Docker) | `http://localhost:3000` |
+| `VITE_API_URL` | Browser-visible API URL (build-time in Docker). Production builds use `https://pde-rag.onrender.com`; local dev defaults to `http://localhost:3000`. | `https://pde-rag.onrender.com` (Docker) |
 | `EVAL_API_URL` | API target for the eval script | `http://localhost:3000` |
+| `DB_MIGRATION_ATTEMPTS` | Migration attempts per startup/recovery cycle | `5` |
+| `DB_MIGRATION_RETRY_MS` | Delay between migration attempts | `2000` |
+| `DB_BACKGROUND_RETRY_MS` | Delay before retrying a failed database initialization | `15000` |
+| `DB_HEALTH_TIMEOUT_MS` | Timeout for `/health` database and verifier probes | `3000` |
 
 ## API examples
+
+### Health and diagnostics
+
+`GET /health` checks the API, PostgreSQL and the SymPy verifier. It returns
+`200` only when the database is reachable; otherwise it returns `503` with a
+sanitized reason. `GET /live` is a liveness-only check that does not touch the
+database.
+
+```bash
+curl -i https://pde-rag.onrender.com/health
+curl -i https://pde-rag.onrender.com/live
+```
 
 ### Feed text
 
@@ -300,6 +316,40 @@ This is an MVP, not a production service:
 - The verifier is intentionally narrow: it checks the supplied residual and conditions, not every possible interpretation of a problem.
 - The 15-question eval set is a starter and must be reviewed and extended for real use.
 
+## Tests and local validation
+
+```bash
+cd backend
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+
+cd ../frontend
+pnpm install --frozen-lockfile
+pnpm typecheck
+VITE_API_URL=https://pde-rag.onrender.com pnpm build
+```
+
+Build and smoke-test the production image locally:
+
+```bash
+docker build --build-arg VITE_API_URL=http://localhost:8080 -t pde-rag-single .
+docker compose up -d postgres
+docker run --rm --network pde-rag_default -p 8080:10000 \
+  -e DATABASE_URL="postgresql://pde:pde@postgres:5432/pde" \
+  -e GROQ_API_KEY="$GROQ_API_KEY" \
+  -e GEMINI_API_KEY="$GEMINI_API_KEY" \
+  -e PORT=10000 \
+  pde-rag-single:latest
+
+./deploy/smoke-test.sh http://127.0.0.1:8080
+SMOKE_PROVIDER_TESTS=1 ./deploy/smoke-test.sh http://127.0.0.1:8080
+```
+
+`/health` returning `503` with `database: unavailable` means PostgreSQL is not
+reachable; the container itself is running. The logs include a redacted reason
+and migrations/retry continues in the background.
+
 ## Deploying to Render (free tier)
 
 This deployment uses **one Docker image** for the whole application and **one public URL**. The React app, the NestJS API, and the FastAPI/SymPy verifier all run inside that single container, and the API is reverse-proxied on the same origin as the page, so the browser never makes a cross-origin request and **CORS never comes into play**.
@@ -356,7 +406,9 @@ The schema stores `vector(1024)` embeddings, so the database must have `pgvector
 4. **Docker context:** `.` (repository root — the build needs `frontend/`, `backend/`, `verifier/` and `deploy/`).
 5. **Instance type:** Free.
 6. **Region:** Oregon (free instances are only available there).
-7. **Health check path:** `/` (nginx serves the app shell).
+7. **Health check path:** `/health` (nginx proxies it to NestJS, which verifies
+   PostgreSQL; a broken database is reported as unhealthy instead of leaving a
+   container that serves the React shell but 502s every API call).
 8. Click **Create Web Service**. The first build takes roughly 4–6 minutes and produces a ~1.1 GB image.
 
 ### 4. Set the environment variables
@@ -397,13 +449,19 @@ curl -X POST https://<your-service>.onrender.com/feed \
 
 Open the site, feed your knowledge on the **Feed** tab, then ask on the **Ask** tab.
 
-### 6. Why there is no CORS problem
+### 6. Why production has no CORS problem
 
-- The frontend is built with `VITE_API_URL` empty, so the browser calls `/ask` and `/feed` **relative to the page origin**.
-- nginx serves the page and proxies those two paths to `127.0.0.1:3000` inside the container, so the request never leaves the origin.
-- The API also keeps `app.enableCors()` enabled, so pointing the frontend at a different host still works.
+- The production frontend is built with `VITE_API_URL=https://pde-rag.onrender.com`
+  (the default in the root `Dockerfile`), so the browser calls
+  `https://pde-rag.onrender.com/ask` and `https://pde-rag.onrender.com/feed`.
+- Those URLs are the same origin that served the page. nginx serves the page and
+  proxies the two paths to `127.0.0.1:3000` inside the container, so the request
+  never leaves the origin.
+- The API also keeps `app.enableCors()` enabled, so local development with
+  `http://localhost:5173` → `http://localhost:3000` still works.
 
-No `Access-Control-Allow-Origin` headers, no preflight requests, nothing to configure in the browser.
+No `Access-Control-Allow-Origin` headers, no preflight requests, nothing to
+configure in the browser for production.
 
 ### 7. One-click deploy with `render.yaml`
 
@@ -412,7 +470,9 @@ No `Access-Control-Allow-Origin` headers, no preflight requests, nothing to conf
 ### 8. Run the same image locally
 
 ```bash
-docker build -t pde-rag-single .
+# The production default is https://pde-rag.onrender.com. For a local smoke
+# test, point the bundle at the port you publish below.
+docker build --build-arg VITE_API_URL=http://localhost:8080 -t pde-rag-single .
 
 # Reuse the Compose database so the fed documents are already there.
 docker compose up -d postgres
@@ -440,10 +500,11 @@ Open **http://localhost:8080** — the same single origin, the same proxy, no CO
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `502` right after the first visit | The instance is still starting | Wait ~60 s and retry; Render also retries the health check |
-| `service did not respond` during deploy | Health check path wrong, or the app is slow to boot | Keep the health check path as `/` and redeploy; the first build is the slow one |
+| `502 Bad Gateway` on `/ask` or `/feed`, but `/` works | nginx is up; the NestJS upstream on `127.0.0.1:3000` is not listening. Most often the database is unreachable or the backend is still starting. | Check Render logs and `GET /health`. A DB failure now returns `503` with a sanitized reason instead of a permanent nginx `502`; fix `DATABASE_URL`/the expired database. |
+| `GET /health` is `503` with `database: unavailable` | PostgreSQL is down, expired, or `DATABASE_URL` is wrong | Verify `DATABASE_URL` and that pgvector is enabled. Migrations retry in the background; no redeploy is required after the database recovers. |
+| `service did not respond` during deploy | The health check path is wrong, or the database never becomes reachable | Keep the health check path as `/health`. Fix the database; Render will not mark a container healthy while it returns 503. |
 | `CREATE SCHEMA IF NOT EXISTS "drizzle"` keeps failing | Wrong `DATABASE_URL`, or the extension is missing | Check the URL, and run `CREATE EXTENSION IF NOT EXISTS vector;` in the database |
-| Browser shows CORS errors | The frontend was built with an absolute `VITE_API_URL` | Keep the build arg empty (the root `Dockerfile` already does) so the app calls `/ask` and `/feed` on its own origin |
+| Browser shows CORS errors in local development | The frontend was built for a different API origin | Production uses `https://pde-rag.onrender.com`; when running Vite locally, set `frontend/.env` to `VITE_API_URL=http://localhost:3000`. |
 | `413 Request Entity Too Large` on a PDF | Upload limit | `client_max_body_size` is 25 MB in `deploy/site.conf.template`; raise it if needed |
 | Answers are cut off mid-sentence | Provider output-token limit | Raise `GROQ_MAX_OUTPUT_TOKENS` (keep it under the provider's per-minute cap) or shorten the question |
 | Database disappeared after a month | Free Render Postgres expired | Move to Neon and update `DATABASE_URL` |

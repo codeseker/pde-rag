@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
+import sympy
 from sympy import Function, Lambda, Symbol, diff, exp, cos, log, pi, simplify, sin, sqrt, tan
 from sympy.core.function import AppliedUndef
 from sympy.parsing.sympy_parser import (
@@ -97,6 +98,15 @@ def zero_check(expression) -> tuple[bool, object]:
 def truncate(value: object, limit: int = 500) -> str:
     text = str(value)
     return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {
+        "status": "ok",
+        "service": "pde-rag-verifier",
+        "sympy": sympy.__version__,
+    }
 
 
 @app.post("/verify", response_model=VerifyResponse)

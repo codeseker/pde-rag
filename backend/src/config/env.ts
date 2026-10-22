@@ -31,6 +31,12 @@ const envSchema = z
     TOP_K: z.coerce.number().int().positive().max(50).default(3),
     MAX_CONTEXT_CHARS: z.coerce.number().int().positive().default(6000),
     VERIFIER_URL: z.string().url().default('http://localhost:8000'),
+    // Database startup/retry tuning. The API starts listening even if the
+    // database is temporarily unreachable; /health reports 503 until it is.
+    DB_MIGRATION_ATTEMPTS: z.coerce.number().int().positive().max(100).default(5),
+    DB_MIGRATION_RETRY_MS: z.coerce.number().int().positive().max(60_000).default(2000),
+    DB_BACKGROUND_RETRY_MS: z.coerce.number().int().positive().max(300_000).default(15_000),
+    DB_HEALTH_TIMEOUT_MS: z.coerce.number().int().positive().max(30_000).default(3000),
   })
   .superRefine((value, ctx) => {
     if (value.CHUNK_OVERLAP >= value.CHUNK_SIZE) {

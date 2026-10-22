@@ -8,7 +8,10 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 
-ARG VITE_API_URL=http://localhost:3000
+# The deployed front-end talks to the Render service directly. For local
+# development pass --build-arg VITE_API_URL=http://localhost:3000 (the root
+# docker-compose file does this automatically).
+ARG VITE_API_URL=https://pde-rag.onrender.com
 ENV VITE_API_URL=$VITE_API_URL
 RUN pnpm build
 

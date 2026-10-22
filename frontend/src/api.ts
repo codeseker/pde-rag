@@ -1,6 +1,19 @@
 import type { FeedResult, Source, Verification } from "./types";
 
-const API_BASE = (import.meta.env.VITE_API_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+// Production is served from Render. The build in the root Dockerfile sets this
+// value explicitly; the fallback keeps a production build from ever silently
+// pointing at localhost if the build arg is omitted.
+const PRODUCTION_API_BASE = "https://pde-rag.onrender.com";
+const configuredApiBase = import.meta.env.VITE_API_URL?.trim() ?? "";
+const fallbackApiBase = import.meta.env.PROD ? PRODUCTION_API_BASE : "http://localhost:3000";
+
+export const API_BASE = (configuredApiBase || fallbackApiBase).replace(/\/+$/, "");
+
+/** Joins the configured API base and a path without duplicate slashes. */
+export function apiUrl(path: string): string {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${API_BASE}${normalizedPath}`;
+}
 
 export interface AskStreamHandlers {
   onToken: (text: string) => void;
@@ -26,6 +39,12 @@ async function readErrorMessage(response: Response): Promise<string> {
     }
   } catch {
     // Fall through to the status-based message.
+  }
+  if (response.status === 502) {
+    return "The API upstream is unavailable (HTTP 502). Check /health and the Render logs.";
+  }
+  if (response.status === 503) {
+    return "The API is temporarily unavailable (HTTP 503). Please retry shortly.";
   }
   return `Request failed with HTTP ${response.status}.`;
 }
@@ -93,9 +112,12 @@ function parseFeedResult(value: unknown): FeedResult {
 }
 
 export async function feedText(title: string, text: string): Promise<FeedResult> {
-  const response = await fetch(`${API_BASE}/feed`, {
+  const response = await fetch(apiUrl("/feed"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
     body: JSON.stringify({ title, text }),
   });
   if (!response.ok) {
@@ -107,8 +129,9 @@ export async function feedText(title: string, text: string): Promise<FeedResult>
 export async function feedPdf(file: File): Promise<FeedResult> {
   const body = new FormData();
   body.append("file", file);
-  const response = await fetch(`${API_BASE}/feed`, {
+  const response = await fetch(apiUrl("/feed"), {
     method: "POST",
+    headers: { Accept: "application/json" },
     body,
   });
   if (!response.ok) {
@@ -122,7 +145,7 @@ export async function askStream(
   handlers: AskStreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(`${API_BASE}/ask`, {
+  const response = await fetch(apiUrl("/ask"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

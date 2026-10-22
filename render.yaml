@@ -15,7 +15,9 @@ services:
     region: oregon
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    healthCheckPath: /
+    # /health returns 503 until NestJS is listening AND PostgreSQL is reachable,
+    # so Render never advertises a container whose /ask and /feed are 502.
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production

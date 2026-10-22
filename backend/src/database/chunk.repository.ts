@@ -1,6 +1,7 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { and, cosineDistance, eq, sql } from 'drizzle-orm';
 import { db } from '../database/client';
+import { errorMessage, isDatabaseUnavailableError } from './database-errors';
 import {
   chunks,
   documents,
@@ -33,55 +34,61 @@ export interface InsertResult {
 
 @Injectable()
 export class ChunkRepository {
+  private readonly logger = new Logger(ChunkRepository.name);
+
   async insert(input: {
     title: string;
     sourceType: SourceType;
     embeddingModel: string;
     chunks: InsertChunk[];
   }): Promise<InsertResult> {
-    await this.assertEmbeddingModel(input.embeddingModel);
+    return this.withDatabase('insert', async () => {
+      await this.assertEmbeddingModel(input.embeddingModel);
 
-    return db.transaction(async (tx) => {
-      const insertedDocs = await tx
-        .insert(documents)
-        .values({ title: input.title, sourceType: input.sourceType })
-        .returning({ id: documents.id });
+      return db.transaction(async (tx) => {
+        const insertedDocs = await tx
+          .insert(documents)
+          .values({ title: input.title, sourceType: input.sourceType })
+          .returning({ id: documents.id });
 
-      const document = insertedDocs[0];
-      if (!document) {
-        throw new Error('Failed to create document');
-      }
+        const document = insertedDocs[0];
+        if (!document) {
+          throw new Error('Failed to create document');
+        }
 
-      if (input.chunks.length === 0) {
-        return { documentId: document.id, inserted: 0 };
-      }
+        if (input.chunks.length === 0) {
+          return { documentId: document.id, inserted: 0 };
+        }
 
-      const rows: NewChunkRow[] = input.chunks.map((chunk) => ({
-        documentId: document.id,
-        content: chunk.content,
-        embedding: chunk.embedding,
-        contentHash: chunk.contentHash,
-        metadata: chunk.metadata,
-        embeddingModel: chunk.embeddingModel,
-      }));
+        const rows: NewChunkRow[] = input.chunks.map((chunk) => ({
+          documentId: document.id,
+          content: chunk.content,
+          embedding: chunk.embedding,
+          contentHash: chunk.contentHash,
+          metadata: chunk.metadata,
+          embeddingModel: chunk.embeddingModel,
+        }));
 
-      const insertedChunks = await tx
-        .insert(chunks)
-        .values(rows)
-        .onConflictDoNothing({ target: chunks.contentHash })
-        .returning({ id: chunks.id });
+        const insertedChunks = await tx
+          .insert(chunks)
+          .values(rows)
+          .onConflictDoNothing({ target: chunks.contentHash })
+          .returning({ id: chunks.id });
 
-      return { documentId: document.id, inserted: insertedChunks.length };
+        return { documentId: document.id, inserted: insertedChunks.length };
+      });
     });
   }
 
   async existsByHash(contentHash: string): Promise<boolean> {
-    const rows = await db
-      .select({ id: chunks.id })
-      .from(chunks)
-      .where(eq(chunks.contentHash, contentHash))
-      .limit(1);
-    return rows.length > 0;
+    return this.withDatabase('existsByHash', async () => {
+      const rows = await db
+        .select({ id: chunks.id })
+        .from(chunks)
+        .where(eq(chunks.contentHash, contentHash))
+        .limit(1);
+      return rows.length > 0;
+    });
   }
 
   async similaritySearch(
@@ -89,58 +96,74 @@ export class ChunkRepository {
     embeddingModel: string,
     limit: number,
   ): Promise<RetrievedChunk[]> {
-    await this.assertEmbeddingModel(embeddingModel);
+    return this.withDatabase('similaritySearch', async () => {
+      await this.assertEmbeddingModel(embeddingModel);
 
-    const pinned = sql<boolean>`coalesce((${chunks.metadata} ->> 'pinned')::boolean, false) = true`;
+      const pinned = sql<boolean>`coalesce((${chunks.metadata} ->> 'pinned')::boolean, false) = true`;
 
-    const pinnedRows = await db
-      .select({
-        id: chunks.id,
-        documentId: chunks.documentId,
-        title: documents.title,
-        content: chunks.content,
-        metadata: chunks.metadata,
-      })
-      .from(chunks)
-      .innerJoin(documents, eq(documents.id, chunks.documentId))
-      .where(and(eq(chunks.embeddingModel, embeddingModel), pinned))
-      .limit(limit);
+      const pinnedRows = await db
+        .select({
+          id: chunks.id,
+          documentId: chunks.documentId,
+          title: documents.title,
+          content: chunks.content,
+          metadata: chunks.metadata,
+        })
+        .from(chunks)
+        .innerJoin(documents, eq(documents.id, chunks.documentId))
+        .where(and(eq(chunks.embeddingModel, embeddingModel), pinned))
+        .limit(limit);
 
-    const rankedRows = await db
-      .select({
-        id: chunks.id,
-        documentId: chunks.documentId,
-        title: documents.title,
-        content: chunks.content,
-        metadata: chunks.metadata,
-        distance: cosineDistance(chunks.embedding, embedding),
-      })
-      .from(chunks)
-      .innerJoin(documents, eq(documents.id, chunks.documentId))
-      .where(eq(chunks.embeddingModel, embeddingModel))
-      .orderBy(cosineDistance(chunks.embedding, embedding))
-      .limit(limit);
+      const rankedRows = await db
+        .select({
+          id: chunks.id,
+          documentId: chunks.documentId,
+          title: documents.title,
+          content: chunks.content,
+          metadata: chunks.metadata,
+          distance: cosineDistance(chunks.embedding, embedding),
+        })
+        .from(chunks)
+        .innerJoin(documents, eq(documents.id, chunks.documentId))
+        .where(eq(chunks.embeddingModel, embeddingModel))
+        .orderBy(cosineDistance(chunks.embedding, embedding))
+        .limit(limit);
 
-    const seen = new Set<string>();
-    const result: RetrievedChunk[] = [];
+      const seen = new Set<string>();
+      const result: RetrievedChunk[] = [];
 
-    for (const row of pinnedRows) {
-      if (!seen.has(row.id)) {
-        seen.add(row.id);
-        result.push({ ...row, distance: null });
+      for (const row of pinnedRows) {
+        if (!seen.has(row.id)) {
+          seen.add(row.id);
+          result.push({ ...row, distance: null });
+        }
       }
-    }
-    for (const row of rankedRows) {
-      if (!seen.has(row.id)) {
-        seen.add(row.id);
-        result.push({
-          ...row,
-          distance: typeof row.distance === 'number' ? row.distance : Number(row.distance),
-        });
+      for (const row of rankedRows) {
+        if (!seen.has(row.id)) {
+          seen.add(row.id);
+          result.push({
+            ...row,
+            distance: typeof row.distance === 'number' ? row.distance : Number(row.distance),
+          });
+        }
       }
-    }
 
-    return result;
+      return result;
+    });
+  }
+
+  private async withDatabase<T>(operation: string, run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (error) {
+      if (!isDatabaseUnavailableError(error)) {
+        throw error;
+      }
+      this.logger.error(`Database ${operation} failed: ${errorMessage(error)}`);
+      throw new ServiceUnavailableException(
+        'The knowledge base database is unavailable. Please retry shortly.',
+      );
+    }
   }
 
   private async assertEmbeddingModel(expected: string | null): Promise<void> {

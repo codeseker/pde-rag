@@ -5,16 +5,25 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 import { env } from '../config/env';
 import { db } from './client';
+import { errorMessage } from './database-errors';
 import * as schema from './schema';
 
-const MAX_ATTEMPTS = 30;
-const DELAY_MS = 2000;
+const DEFAULT_MAX_ATTEMPTS = 30;
+const DEFAULT_DELAY_MS = 2000;
+
+export interface MigrationOptions {
+  maxAttempts?: number;
+  delayMs?: number;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 }
 
-export async function runMigrations(): Promise<void> {
+export async function runMigrations(options: MigrationOptions = {}): Promise<void> {
+  const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+  const delayMs = options.delayMs ?? DEFAULT_DELAY_MS;
+
   const migrationsFolder = resolve(process.cwd(), 'drizzle');
   if (!existsSync(migrationsFolder)) {
     throw new Error(`Drizzle migrations folder not found: ${migrationsFolder}`);
@@ -25,25 +34,25 @@ export async function runMigrations(): Promise<void> {
   const migrationUrl = env.MIGRATION_DATABASE_URL;
   const dedicatedPool =
     migrationUrl && migrationUrl !== env.DATABASE_URL
-      ? new Pool({ connectionString: migrationUrl, max: 1 })
+      ? new Pool({ connectionString: migrationUrl, max: 1, connectionTimeoutMillis: 10_000 })
       : null;
   const migrationDb = dedicatedPool ? drizzle(dedicatedPool, { schema }) : db;
 
   try {
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         await migrate(migrationDb, { migrationsFolder });
         console.log('[db] migrations applied');
         return;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (attempt === MAX_ATTEMPTS) {
+        const message = errorMessage(error);
+        if (attempt === maxAttempts) {
           throw new Error(
-            `Database migrations failed after ${MAX_ATTEMPTS} attempts: ${message}`,
+            `Database migrations failed after ${maxAttempts} attempts: ${message}`,
           );
         }
-        console.warn(`[db] waiting for database (${attempt}/${MAX_ATTEMPTS}): ${message}`);
-        await sleep(DELAY_MS);
+        console.warn(`[db] waiting for database (${attempt}/${maxAttempts}): ${message}`);
+        await sleep(delayMs);
       }
     }
   } finally {

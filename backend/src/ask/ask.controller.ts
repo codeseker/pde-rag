@@ -11,6 +11,8 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
+import { redactSecrets } from '../database/database-errors';
+import { DatabaseService } from '../database/database.service';
 import { AskService } from './ask.service';
 
 const AskBodySchema = z.object({
@@ -55,7 +57,10 @@ function publicErrorMessage(error: unknown): string {
 export class AskController {
   private readonly logger = new Logger(AskController.name);
 
-  constructor(private readonly ask: AskService) {}
+  constructor(
+    private readonly ask: AskService,
+    private readonly database: DatabaseService,
+  ) {}
 
   @Post('ask')
   @HttpCode(200)
@@ -69,12 +74,22 @@ export class AskController {
       throw new BadRequestException('Body must be {"question": "..."} with 3-4000 characters.');
     }
 
+    if (!this.database.isReady()) {
+      response.status(503).json({
+        statusCode: 503,
+        error: 'Service Unavailable',
+        message:
+          'The knowledge base database is unavailable. Check GET /health and retry shortly.',
+      });
+      return;
+    }
+
     if (stream === 'false') {
       try {
         const result = await this.ask.ask(parsed.data.question);
         response.json(result);
       } catch (error) {
-        this.logger.error(error instanceof Error ? error.stack : String(error));
+        this.logError(error);
         throw new ServiceUnavailableException(publicErrorMessage(error));
       }
       return;
@@ -95,11 +110,17 @@ export class AskController {
       this.send(response, { type: 'sources', sources: result.sources });
       this.send(response, { type: 'done', verification: result.verification });
     } catch (error) {
-      this.logger.error(error instanceof Error ? error.stack : String(error));
+      this.logError(error);
       this.send(response, { type: 'error', message: publicErrorMessage(error) });
     } finally {
       response.end();
     }
+  }
+
+  /** Provider errors can contain request URLs; never write keys/tokens to logs. */
+  private logError(error: unknown): void {
+    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    this.logger.error(redactSecrets(message));
   }
 
   private send(response: Response, payload: object): void {

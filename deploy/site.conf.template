@@ -1,8 +1,10 @@
 # Reverse proxy + static file server.
 # __PORT__ is replaced with $PORT by deploy/entrypoint.sh at container start.
 #
-# The browser only ever calls "/ask" and "/feed" on this same origin, so the
-# request never crosses an origin boundary and CORS never applies.
+# The browser calls the public Render origin. These exact locations keep API
+# traffic out of the React SPA fallback and forward it to the NestJS process on
+# loopback port 3000. No trailing URI is added to proxy_pass, so the original
+# path (/ask, /feed, /health) is preserved.
 
 server {
   listen __PORT__;
@@ -13,6 +15,43 @@ server {
 
   # PDF uploads go through POST /feed.
   client_max_body_size 25m;
+  client_body_timeout 300s;
+
+  # --- API health / dependency diagnostics ----------------------------------
+  location = /health {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host  $host;
+    proxy_set_header X-Forwarded-Port  $server_port;
+    proxy_set_header X-Request-ID      $request_id;
+    proxy_set_header Connection        "";
+
+    proxy_connect_timeout 5s;
+    proxy_send_timeout    15s;
+    proxy_read_timeout    15s;
+    proxy_buffering       off;
+  }
+
+  # --- Liveness (process up, database may still be starting) ----------------
+  location = /live {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Request-ID      $request_id;
+    proxy_set_header Connection        "";
+
+    proxy_connect_timeout 5s;
+    proxy_send_timeout    10s;
+    proxy_read_timeout    10s;
+    proxy_buffering       off;
+  }
 
   # --- SSE streaming endpoint ------------------------------------------------
   location = /ask {
@@ -22,17 +61,23 @@ server {
     proxy_set_header X-Real-IP         $remote_addr;
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host  $host;
+    proxy_set_header X-Forwarded-Port  $server_port;
+    proxy_set_header X-Request-ID      $request_id;
     proxy_set_header Connection        "";
 
-    # Required for server-sent events: stream bytes as they arrive.
+    # Required for server-sent events: stream bytes as they arrive and do not
+    # let nginx turn a long LLM call into a buffered / terminated response.
     proxy_buffering off;
     proxy_cache off;
+    proxy_request_buffering off;
     chunked_transfer_encoding on;
+    gzip off;
 
-    # The LLM call can take a while on a cold start.
-    proxy_connect_timeout 30s;
-    proxy_send_timeout    300s;
-    proxy_read_timeout    300s;
+    # The LLM call and queued retrieval can take a while on a cold start.
+    proxy_connect_timeout 10s;
+    proxy_send_timeout    600s;
+    proxy_read_timeout    600s;
   }
 
   # --- Document ingestion endpoint -------------------------------------------
@@ -43,12 +88,17 @@ server {
     proxy_set_header X-Real-IP         $remote_addr;
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host  $host;
+    proxy_set_header X-Forwarded-Port  $server_port;
+    proxy_set_header X-Request-ID      $request_id;
     proxy_set_header Connection        "";
 
     client_max_body_size 25m;
-    proxy_connect_timeout 30s;
-    proxy_send_timeout    300s;
-    proxy_read_timeout    300s;
+    proxy_request_buffering off;
+    proxy_buffering off;
+    proxy_connect_timeout 10s;
+    proxy_send_timeout    600s;
+    proxy_read_timeout    600s;
   }
 
   # --- Static React app ------------------------------------------------------
