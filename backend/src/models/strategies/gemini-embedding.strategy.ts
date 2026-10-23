@@ -1,13 +1,13 @@
-import { Injectable } from '@nestjs/common';
-import { TaskType } from '@google/generative-ai';
-import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
-import { env } from '../../config/env';
-import { VECTOR_DIMENSIONS } from '../../database/schema';
-import type { IEmbeddingStrategy } from '../interfaces/embedding-strategy.interface';
+import { Injectable } from "@nestjs/common";
+import { TaskType } from "@google/generative-ai";
+import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
+import { env } from "../../config/env";
+import { VECTOR_DIMENSIONS } from "../../database/schema";
+import type { IEmbeddingStrategy } from "../interfaces/embedding-strategy.interface";
 
 @Injectable()
 export class GeminiEmbeddingStrategy implements IEmbeddingStrategy {
-  readonly name = 'gemini';
+  readonly name = "gemini";
   readonly dimensions = VECTOR_DIMENSIONS;
   private readonly documentEmbeddings: GoogleGenerativeAIEmbeddings;
   private readonly queryEmbeddings: GoogleGenerativeAIEmbeddings;
@@ -17,7 +17,7 @@ export class GeminiEmbeddingStrategy implements IEmbeddingStrategy {
       apiKey:
         env.GOOGLE_API_KEY?.trim() ||
         env.GEMINI_API_KEY?.trim() ||
-        'missing-google-api-key',
+        "missing-google-api-key",
       model: env.GEMINI_EMBEDDING_MODEL,
       outputDimensionality: this.dimensions,
       stripNewLines: false,
@@ -41,6 +41,11 @@ export class GeminiEmbeddingStrategy implements IEmbeddingStrategy {
 
   async embedQuery(text: string): Promise<number[]> {
     const vector = await this.queryEmbeddings.embedQuery(text);
+    console.log({
+      model: env.GEMINI_EMBEDDING_MODEL,
+      expectedDimensions: this.dimensions,
+      actualDimensions: vector.length,
+    });
     this.assertDimensions([vector]);
     return vector;
   }
