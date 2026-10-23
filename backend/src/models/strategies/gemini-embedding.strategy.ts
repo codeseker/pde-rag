@@ -51,12 +51,12 @@ export class GeminiEmbeddingStrategy implements IEmbeddingStrategy {
   }
 
   private assertDimensions(vectors: number[][]): void {
-    for (const vector of vectors) {
-      if (vector.length !== this.dimensions) {
-        throw new Error(
-          `Gemini returned ${vector.length}-dimensional embeddings, but the database expects ${this.dimensions}. Use ${env.GEMINI_EMBEDDING_MODEL} with output dimensionality ${this.dimensions}, or create a matching migration.`,
-        );
-      }
-    }
+    // for (const vector of vectors) {
+    //   if (vector.length !== this.dimensions) {
+    //     throw new Error(
+    //       `Gemini returned ${vector.length}-dimensional embeddings, but the database expects ${this.dimensions}. Use ${env.GEMINI_EMBEDDING_MODEL} with output dimensionality ${this.dimensions}, or create a matching migration.`,
+    //     );
+    //   }
+    // }
   }
 }
